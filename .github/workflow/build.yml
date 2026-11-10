@@ -1,0 +1,639 @@
+# GymTimer — monta o projeto e compila o APK no GitHub (sem notebook).
+# Resultado: aba Actions -> último "Build APK" -> Artifacts -> GymTimer-apk
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Montar projeto
+        run: |
+          mkdir -p "$(dirname settings.gradle.kts)"
+          cat > settings.gradle.kts <<'FIM_ARQUIVO'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "GymTimer"
+          include(":app")
+          FIM_ARQUIVO
+          mkdir -p "$(dirname build.gradle.kts)"
+          cat > build.gradle.kts <<'FIM_ARQUIVO'
+          // Versões são SUGESTÕES (nov/2026). Se o Android Studio sugerir atualizar, pode aceitar.
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
+          }
+          FIM_ARQUIVO
+          mkdir -p "$(dirname gradle.properties)"
+          cat > gradle.properties <<'FIM_ARQUIVO'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/build.gradle.kts)"
+          cat > app/build.gradle.kts <<'FIM_ARQUIVO'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+
+          android {
+              namespace = "br.com.gabriel.gymtimer"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "br.com.gabriel.gymtimer"
+                  minSdk = 30          // Wear OS 3 (Galaxy Watch 4 de fábrica)
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      // Assina com a chave de debug para instalar direto no relógio sem Play Store
+                      signingConfig = signingConfigs.getByName("debug")
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+              buildFeatures { compose = true }
+          }
+
+          dependencies {
+              implementation("androidx.activity:activity-compose:1.9.3")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+              implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+              implementation("androidx.wear.compose:compose-material:1.4.0")
+              implementation("androidx.wear.compose:compose-foundation:1.4.0")
+              implementation("androidx.compose.ui:ui:1.7.5")
+              implementation("androidx.compose.foundation:foundation:1.7.5")
+          }
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/AndroidManifest.xml)"
+          cat > app/src/main/AndroidManifest.xml <<'FIM_ARQUIVO'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <!-- Vibrar ao fim do descanso -->
+              <uses-permission android:name="android.permission.VIBRATE" />
+
+              <uses-feature android:name="android.hardware.type.watch" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:theme="@style/Theme.GymTimer">
+
+                  <!-- App standalone: não depende de app no celular -->
+                  <meta-data
+                      android:name="com.google.android.wearable.standalone"
+                      android:value="true" />
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTask">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/res/values/strings.xml)"
+          cat > app/src/main/res/values/strings.xml <<'FIM_ARQUIVO'
+          <resources>
+              <string name="app_name">GymTimer</string>
+          </resources>
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/res/values/themes.xml)"
+          cat > app/src/main/res/values/themes.xml <<'FIM_ARQUIVO'
+          <resources>
+              <!-- Swipe-to-dismiss DESLIGADO: evita fechar o app sem querer com o suor/dedo
+                   e evita conflito com o botão inferior (que no Galaxy Watch é o "Voltar").
+                   Para sair do app: botão superior (Home). -->
+              <style name="Theme.GymTimer" parent="android:Theme.DeviceDefault">
+                  <item name="android:windowSwipeToDismiss">false</item>
+                  <item name="android:windowBackground">@android:color/black</item>
+              </style>
+          </resources>
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/res/drawable/ic_launcher_foreground.xml)"
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'FIM_ARQUIVO'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+              <!-- Cronômetro simples -->
+              <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="5"
+                  android:pathData="M54,32a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M48,22h12v6h-12z"/>
+              <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="5"
+                  android:strokeLineCap="round" android:pathData="M54,56L54,42"/>
+          </vector>
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/res/drawable/ic_launcher_background.xml)"
+          cat > app/src/main/res/drawable/ic_launcher_background.xml <<'FIM_ARQUIVO'
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#FF6D00"/>
+          </shape>
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml)"
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'FIM_ARQUIVO'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_background"/>
+              <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+          </adaptive-icon>
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/java/br/com/gabriel/gymtimer/Config.kt)"
+          cat > app/src/main/java/br/com/gabriel/gymtimer/Config.kt <<'FIM_ARQUIVO'
+          package br.com.gabriel.gymtimer
+
+          /**
+           * =====================================================================
+           *  CONFIGURAÇÕES DO GYMTIMER — mude aqui sem mexer no resto do código
+           * =====================================================================
+           */
+          object Config {
+
+              /** Tempos de descanso pré-definidos, em segundos. Troque com o bezel ou com as setas na tela. */
+              val TEMPOS_DESCANSO_S = listOf(30, 45, 60, 90, 120, 150, 180)
+
+              /** Índice do tempo que aparece selecionado na 1ª vez que o app abre (2 = 60 s). */
+              const val INDICE_TEMPO_PADRAO = 2
+
+              /** Intervalo mínimo entre dois apertos válidos do botão (ms). Evita contar série em dobro. */
+              const val DEBOUNCE_BOTAO_MS = 800L
+
+              /** Vibração final: [espera, vibra, pausa, vibra, pausa, vibra] em ms. */
+              val PADRAO_VIBRACAO_FIM = longArrayOf(0, 500, 200, 500, 200, 800)
+
+              /** Vibra um "tique" curto nos últimos N segundos (0 = desliga). */
+              const val SEGUNDOS_AVISO_FINAL = 3
+              const val DURACAO_TIQUE_MS = 60L
+
+              /** Quanto tempo a tela mostra "VAI!" depois que o descanso acaba (ms). */
+              const val TEMPO_MENSAGEM_FIM_MS = 3000L
+
+              /**
+               * Mantém a tela ligada o tempo todo com o app aberto.
+               * true  = o botão funciona sempre na 1ª apertada (recomendado no treino).
+               * false = tela só fica ligada durante o countdown; com a tela apagada,
+               *         o 1º aperto pode só acordar o relógio.
+               */
+              const val MANTER_TELA_LIGADA_SEMPRE = true
+
+              /** Taxa de atualização do display durante o countdown (ms). */
+              const val INTERVALO_ATUALIZACAO_MS = 100L
+
+              /** Sensibilidade do bezel/coroa: quanto girar para pular 1 tempo. */
+              const val LIMIAR_ROTARY_PX = 60f
+          }
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/java/br/com/gabriel/gymtimer/Vibracao.kt)"
+          cat > app/src/main/java/br/com/gabriel/gymtimer/Vibracao.kt <<'FIM_ARQUIVO'
+          package br.com.gabriel.gymtimer
+
+          import android.content.Context
+          import android.os.Build
+          import android.os.VibrationEffect
+          import android.os.Vibrator
+          import android.os.VibratorManager
+
+          /**
+           * Encapsula o motor de vibração do relógio.
+           * API 31+ (Wear OS 4/5) usa VibratorManager; API 30 (Wear OS 3) usa Vibrator direto.
+           */
+          class Vibracao(context: Context) {
+
+              private val vibrator: Vibrator =
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                      val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                      vm.defaultVibrator
+                  } else {
+                      @Suppress("DEPRECATION")
+                      context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                  }
+
+              /** Vibração longa de "acabou o descanso". */
+              fun fimDescanso() {
+                  vibrator.cancel()
+                  vibrator.vibrate(VibrationEffect.createWaveform(Config.PADRAO_VIBRACAO_FIM, -1))
+              }
+
+              /** Tique curto (contagem regressiva final e confirmação de toque). */
+              fun tique() {
+                  vibrator.vibrate(
+                      VibrationEffect.createOneShot(Config.DURACAO_TIQUE_MS, VibrationEffect.DEFAULT_AMPLITUDE)
+                  )
+              }
+
+              /** Dois tiques: confirmação de "zerou as séries". */
+              fun confirmacaoReset() {
+                  vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 80, 100, 80), -1))
+              }
+
+              fun parar() = vibrator.cancel()
+          }
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/java/br/com/gabriel/gymtimer/TimerViewModel.kt)"
+          cat > app/src/main/java/br/com/gabriel/gymtimer/TimerViewModel.kt <<'FIM_ARQUIVO'
+          package br.com.gabriel.gymtimer
+
+          import android.app.Application
+          import android.content.Context
+          import android.os.SystemClock
+          import androidx.lifecycle.AndroidViewModel
+          import androidx.lifecycle.viewModelScope
+          import kotlinx.coroutines.Job
+          import kotlinx.coroutines.delay
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.StateFlow
+          import kotlinx.coroutines.flow.asStateFlow
+          import kotlinx.coroutines.flow.update
+          import kotlinx.coroutines.isActive
+          import kotlinx.coroutines.launch
+
+          /** Máquina de estados do timer. */
+          enum class Fase {
+              PRONTO,       // esperando você terminar a série e apertar o botão
+              DESCANSANDO,  // countdown rodando
+              FIM           // descanso acabou — mostra "VAI!" por alguns segundos
+          }
+
+          data class EstadoTimer(
+              val fase: Fase = Fase.PRONTO,
+              val series: Int = 0,
+              val indiceTempo: Int = Config.INDICE_TEMPO_PADRAO,
+              val restanteMs: Long = 0L,
+              val totalMs: Long = 0L
+          ) {
+              val tempoSelecionadoS: Int get() = Config.TEMPOS_DESCANSO_S[indiceTempo]
+
+              /** Fração restante (1.0 → 0.0) para o anel de progresso. */
+              val progresso: Float
+                  get() = if (fase == Fase.DESCANSANDO && totalMs > 0) restanteMs.toFloat() / totalMs else 0f
+          }
+
+          /**
+           * Lógica do app. Fica separada da tela para sobreviver a rotação/recomposição
+           * e para salvar séries e tempo escolhido (SharedPreferences) caso o app seja fechado.
+           */
+          class TimerViewModel(app: Application) : AndroidViewModel(app) {
+
+              private val prefs = app.getSharedPreferences("gymtimer", Context.MODE_PRIVATE)
+              private val vibracao = Vibracao(app)
+
+              private val _estado = MutableStateFlow(
+                  EstadoTimer(
+                      series = prefs.getInt(KEY_SERIES, 0),
+                      indiceTempo = prefs.getInt(KEY_INDICE, Config.INDICE_TEMPO_PADRAO)
+                          .coerceIn(0, Config.TEMPOS_DESCANSO_S.lastIndex)
+                  )
+              )
+              val estado: StateFlow<EstadoTimer> = _estado.asStateFlow()
+
+              private var jobContagem: Job? = null
+              private var ultimoAperto = 0L
+
+              /**
+               * BOTÃO FÍSICO INFERIOR.
+               * Cada aperto = 1 série concluída → soma 1 e (re)inicia o descanso.
+               * Se apertar durante o descanso, conta a nova série e reinicia o countdown.
+               */
+              fun onBotao() {
+                  val agora = SystemClock.elapsedRealtime()
+                  if (agora - ultimoAperto < Config.DEBOUNCE_BOTAO_MS) return  // filtro de aperto duplo
+                  ultimoAperto = agora
+
+                  _estado.update { it.copy(series = it.series + 1) }
+                  salvar()
+                  iniciarDescanso()
+              }
+
+              private fun iniciarDescanso() {
+                  jobContagem?.cancel()
+                  vibracao.parar()
+
+                  val totalMs = _estado.value.tempoSelecionadoS * 1000L
+                  // Usa um "horário de término" fixo: o tempo fica exato mesmo se a UI engasgar.
+                  val fimEm = SystemClock.elapsedRealtime() + totalMs
+                  var ultimoSegundoAvisado = -1
+
+                  _estado.update { it.copy(fase = Fase.DESCANSANDO, totalMs = totalMs, restanteMs = totalMs) }
+
+                  jobContagem = viewModelScope.launch {
+                      while (isActive) {
+                          val restante = (fimEm - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                          _estado.update { it.copy(restanteMs = restante) }
+
+                          if (restante == 0L) {
+                              finalizarDescanso()
+                              break
+                          }
+
+                          // Tiques nos últimos segundos (3, 2, 1)
+                          val segundo = ((restante + 999) / 1000).toInt()
+                          if (segundo <= Config.SEGUNDOS_AVISO_FINAL && segundo != ultimoSegundoAvisado) {
+                              ultimoSegundoAvisado = segundo
+                              vibracao.tique()
+                          }
+
+                          delay(Config.INTERVALO_ATUALIZACAO_MS)
+                      }
+                  }
+              }
+
+              private suspend fun finalizarDescanso() {
+                  vibracao.fimDescanso()
+                  _estado.update { it.copy(fase = Fase.FIM, restanteMs = 0L) }
+                  delay(Config.TEMPO_MENSAGEM_FIM_MS)
+                  _estado.update { it.copy(fase = Fase.PRONTO) }
+              }
+
+              /** Toque no tempo durante o descanso: pula o descanso (não mexe nas séries). */
+              fun cancelarDescanso() {
+                  jobContagem?.cancel()
+                  vibracao.parar()
+                  _estado.update { it.copy(fase = Fase.PRONTO, restanteMs = 0L) }
+              }
+
+              /** Troca o tempo de descanso (+1 / -1). Vale para o PRÓXIMO descanso se já estiver contando. */
+              fun mudarTempo(passo: Int) {
+                  _estado.update {
+                      val novo = (it.indiceTempo + passo).coerceIn(0, Config.TEMPOS_DESCANSO_S.lastIndex)
+                      it.copy(indiceTempo = novo)
+                  }
+                  salvar()
+              }
+
+              /** Toque longo no contador: zera as séries (novo exercício). */
+              fun zerarSeries() {
+                  _estado.update { it.copy(series = 0) }
+                  salvar()
+                  vibracao.confirmacaoReset()
+              }
+
+              private fun salvar() {
+                  val e = _estado.value
+                  prefs.edit().putInt(KEY_SERIES, e.series).putInt(KEY_INDICE, e.indiceTempo).apply()
+              }
+
+              override fun onCleared() {
+                  jobContagem?.cancel()
+                  super.onCleared()
+              }
+
+              private companion object {
+                  const val KEY_SERIES = "series"
+                  const val KEY_INDICE = "indice_tempo"
+              }
+          }
+          FIM_ARQUIVO
+          mkdir -p "$(dirname app/src/main/java/br/com/gabriel/gymtimer/MainActivity.kt)"
+          cat > app/src/main/java/br/com/gabriel/gymtimer/MainActivity.kt <<'FIM_ARQUIVO'
+          package br.com.gabriel.gymtimer
+
+          import android.os.Bundle
+          import android.view.KeyEvent
+          import android.view.WindowManager
+          import androidx.activity.ComponentActivity
+          import androidx.activity.OnBackPressedCallback
+          import androidx.activity.compose.setContent
+          import androidx.activity.viewModels
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.combinedClickable
+          import androidx.compose.foundation.ExperimentalFoundationApi
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.focusable
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.focus.FocusRequester
+          import androidx.compose.ui.focus.focusRequester
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.style.TextAlign
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import androidx.lifecycle.compose.collectAsStateWithLifecycle
+          import androidx.wear.compose.material.CircularProgressIndicator
+          import androidx.wear.compose.material.MaterialTheme
+          import androidx.wear.compose.material.Text
+
+          // Cores (fundo preto = economia de bateria na tela AMOLED)
+          private val LARANJA = Color(0xFFFF6D00)
+          private val VERDE = Color(0xFF00E676)
+          private val CINZA = Color(0xFF9E9E9E)
+          private val TRILHA = Color(0xFF2A2A2A)
+
+          class MainActivity : ComponentActivity() {
+
+              private val vm: TimerViewModel by viewModels()
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  // --- BOTÃO INFERIOR ---
+                  // No Galaxy Watch 4 o botão de baixo é o "Voltar". Interceptamos o Voltar
+                  // para ele virar o botão do timer. Para SAIR do app use o botão de cima (Home).
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() = vm.onBotao()
+                  })
+
+                  if (Config.MANTER_TELA_LIGADA_SEMPRE) {
+                      window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                  }
+
+                  setContent {
+                      val estado by vm.estado.collectAsStateWithLifecycle()
+
+                      // Se não for manter sempre ligada, liga a tela só durante o descanso
+                      if (!Config.MANTER_TELA_LIGADA_SEMPRE) {
+                          LaunchedEffect(estado.fase) {
+                              if (estado.fase == Fase.DESCANSANDO)
+                                  window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                              else
+                                  window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                          }
+                      }
+
+                      MaterialTheme {
+                          TelaTimer(
+                              estado = estado,
+                              onMudarTempo = vm::mudarTempo,
+                              onCancelar = vm::cancelarDescanso,
+                              onZerar = vm::zerarSeries
+                          )
+                      }
+                  }
+              }
+
+              /**
+               * Relógios com botões "stem" programáveis (Pixel Watch, Fossil etc.) mandam
+               * KEYCODE_STEM_*. Tratamos aqui também, para o app funcionar além do Galaxy.
+               * (O Voltar NÃO é tratado aqui — ele vai pelo OnBackPressedCallback acima,
+               *  assim nunca conta em dobro.)
+               */
+              override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+                  return when (keyCode) {
+                      KeyEvent.KEYCODE_STEM_1,
+                      KeyEvent.KEYCODE_STEM_2,
+                      KeyEvent.KEYCODE_STEM_3 -> {
+                          if (event.repeatCount == 0) vm.onBotao()
+                          true
+                      }
+                      else -> super.onKeyDown(keyCode, event)
+                  }
+              }
+          }
+
+          @OptIn(ExperimentalFoundationApi::class)
+          @Composable
+          fun TelaTimer(
+              estado: EstadoTimer,
+              onMudarTempo: (Int) -> Unit,
+              onCancelar: () -> Unit,
+              onZerar: () -> Unit
+          ) {
+              // Bezel giratório / coroa: troca o tempo de descanso
+              val focus = remember { FocusRequester() }
+              var acumulado by remember { mutableFloatStateOf(0f) }
+              LaunchedEffect(Unit) { focus.requestFocus() }
+
+              val corPrincipal = when (estado.fase) {
+                  Fase.DESCANSANDO -> LARANJA
+                  Fase.FIM -> VERDE
+                  Fase.PRONTO -> Color.White
+              }
+
+              Box(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .background(Color.Black)
+                      .onRotaryScrollEvent { ev ->
+                          acumulado += ev.verticalScrollPixels
+                          if (acumulado > Config.LIMIAR_ROTARY_PX) { onMudarTempo(+1); acumulado = 0f }
+                          else if (acumulado < -Config.LIMIAR_ROTARY_PX) { onMudarTempo(-1); acumulado = 0f }
+                          true
+                      }
+                      .focusRequester(focus)
+                      .focusable(),
+                  contentAlignment = Alignment.Center
+              ) {
+                  // Anel de progresso na borda da tela redonda
+                  CircularProgressIndicator(
+                      progress = estado.progresso,
+                      modifier = Modifier.fillMaxSize().padding(4.dp),
+                      startAngle = 270f,
+                      indicatorColor = corPrincipal,
+                      trackColor = TRILHA,
+                      strokeWidth = 8.dp
+                  )
+
+                  Column(horizontalAlignment = Alignment.CenterHorizontally) {
+
+                      // ---- CONTADOR DE SÉRIES (toque longo = zerar) ----
+                      Column(
+                          horizontalAlignment = Alignment.CenterHorizontally,
+                          modifier = Modifier.combinedClickable(
+                              onClick = {},
+                              onLongClick = onZerar
+                          )
+                      ) {
+                          Text("SÉRIE", color = CINZA, fontSize = 12.sp)
+                          Text(
+                              "${estado.series}",
+                              color = Color.White,
+                              fontSize = 30.sp,
+                              fontWeight = FontWeight.Bold
+                          )
+                      }
+
+                      Spacer(Modifier.height(2.dp))
+
+                      // ---- TEMPO (toque durante o descanso = pular descanso) ----
+                      val textoTempo = when (estado.fase) {
+                          Fase.DESCANSANDO -> formatar(((estado.restanteMs + 999) / 1000).toInt())
+                          Fase.FIM -> "VAI!"
+                          Fase.PRONTO -> formatar(estado.tempoSelecionadoS)
+                      }
+                      Text(
+                          text = textoTempo,
+                          color = corPrincipal,
+                          fontSize = 44.sp,
+                          fontWeight = FontWeight.Bold,
+                          modifier = Modifier.clickable(enabled = estado.fase == Fase.DESCANSANDO) { onCancelar() }
+                      )
+
+                      Spacer(Modifier.height(4.dp))
+
+                      // ---- SELETOR DE TEMPO (setas ou bezel) ----
+                      Row(verticalAlignment = Alignment.CenterVertically) {
+                          Text(
+                              "◀",
+                              color = CINZA, fontSize = 18.sp,
+                              modifier = Modifier.clickable { onMudarTempo(-1) }.padding(horizontal = 12.dp, vertical = 4.dp)
+                          )
+                          Text(
+                              "${estado.tempoSelecionadoS}s",
+                              color = Color.White, fontSize = 14.sp
+                          )
+                          Text(
+                              "▶",
+                              color = CINZA, fontSize = 18.sp,
+                              modifier = Modifier.clickable { onMudarTempo(+1) }.padding(horizontal = 12.dp, vertical = 4.dp)
+                          )
+                      }
+
+                      Text(
+                          text = when (estado.fase) {
+                              Fase.PRONTO -> "Fim da série? ⬇ botão"
+                              Fase.DESCANSANDO -> "Descansando…"
+                              Fase.FIM -> "Próxima série"
+                          },
+                          color = CINZA,
+                          fontSize = 11.sp,
+                          textAlign = TextAlign.Center
+                      )
+                  }
+              }
+          }
+
+          /** 75 → "1:15" */
+          private fun formatar(segundos: Int): String = "%d:%02d".format(segundos / 60, segundos % 60)
+          FIM_ARQUIVO
+      - name: Compilar APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GymTimer-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
